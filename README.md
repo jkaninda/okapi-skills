@@ -1,6 +1,6 @@
 # Okapi Skills
 
-AI Agent skills for [Okapi](https://github.com/jkaninda/okapi) — a modern, minimalist HTTP web framework for Go inspired by FastAPI.
+AI Agent skills for [Okapi](https://github.com/jkaninda/okapi) — a modern, minimalist HTTP framework for Go built for simplicity, performance, and developer experience.
 
 ## What are Skills?
 
@@ -11,16 +11,20 @@ Skills are focused, single-purpose reference files that AI agents (Claude Code, 
 | Skill | Description |
 |-------|-------------|
 | [overview](overview/) | Project structure, core types, constructors, app configuration, server lifecycle |
-| [routing](routing/) | HTTP methods, path parameters, generic handlers, route groups, route methods |
+| [routing](routing/) | HTTP methods, path parameters, generic handlers, route groups, route methods, fallbacks |
 | [route_definition](route_definition/) | Declarative `RouteDefinition` struct, bulk registration, project organization patterns |
-| [request_binding](request_binding/) | Struct tag binding (JSON, query, path, header, cookie, form), validation tags |
-| [response](response/) | JSON/XML/YAML responses, file serving, structured responses, error handling, RFC 7807 |
-| [openapi](openapi/) | Swagger UI, ReDoc, route documentation options, DocBuilder, OpenAPI configuration |
+| [request_binding](request_binding/) | Struct tag binding (JSON, query, path, header, cookie, form), validation tags, formats |
+| [response](response/) | JSON/XML/YAML responses, file serving, structured responses, ResponseWriter extensions |
+| [error_handling](error_handling/) | Abort methods, custom error handlers, RFC 7807 Problem Details |
+| [openapi](openapi/) | Swagger UI, ReDoc, Scalar, OpenAPI 3.0 / 3.1, webhooks, OAuth flows, DocBuilder |
 | [authentication](authentication/) | JWT auth, claims expression DSL, Basic auth, CORS configuration |
-| [middleware](middleware/) | Built-in middleware, global/per-route/per-group middleware, chaining pattern |
+| [middleware](middleware/) | Built-in middleware (Logger, RequestID, BasicAuth, JWT, BodyLimit, CORS), chaining, std-lib bridge |
+| [dynamic_routes](dynamic_routes/) | Runtime enable/disable of routes, groups, and docs; deprecation; hiding |
 | [sse_stream](sse_stream/) | Server-Sent Events, single events, channel streaming, serializers |
+| [websocket](websocket/) | WebSocket upgrade via the `okapi-ws` package, with Okapi and `net/http` |
+| [http_client](http_client/) | `okapi/client` fluent HTTP client, retries, middleware, decoders |
 | [testing](testing/) | TestServer, TestContext, okapitest fluent client, assertions |
-| [cli](cli/) | okapicli package, flags, struct-based config, subcommands, server lifecycle |
+| [cli](cli/) | okapicli package, flags, struct-based config, subcommands, server lifecycle hooks |
 | [context](context/) | Data store, request inspection, parameters, cookies, templates, static files, TLS |
 
 ## Usage
@@ -54,10 +58,14 @@ skills/
 ├── route_definition/SKILL.md
 ├── request_binding/SKILL.md
 ├── response/SKILL.md
+├── error_handling/SKILL.md
 ├── openapi/SKILL.md
 ├── authentication/SKILL.md
 ├── middleware/SKILL.md
+├── dynamic_routes/SKILL.md
 ├── sse_stream/SKILL.md
+├── websocket/SKILL.md
+├── http_client/SKILL.md
 ├── testing/SKILL.md
 ├── cli/SKILL.md
 └── context/SKILL.md
@@ -67,9 +75,9 @@ skills/
 
 To add a new skill:
 
-1. Create a directory with a descriptive name (e.g. `websocket/`)
+1. Create a directory with a descriptive name (e.g. `metrics/`)
 2. Add a `SKILL.md` inside it with the API reference, types, and examples
-3. Update `SKILLS.md` with the new entry
+3. Update `README.md` and `SKILLS.md` with the new entry
 
 Keep skills focused on a single topic. Prefer code examples over prose.
 

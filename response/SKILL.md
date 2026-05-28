@@ -1,4 +1,6 @@
-## Okapi Response & Error Handling
+## Okapi Response Helpers
+
+For error handling (Abort methods, RFC 7807 Problem Details, custom error handlers), see the `error_handling/` skill.
 
 ### JSON Responses
 
@@ -16,9 +18,9 @@ c.XML(code, data)
 c.YAML(code, data)
 c.Text(code, data) / c.String(code, data)
 c.Data(code, contentType, []byte)
-c.HTML(code, file, data)
-c.HTMLView(code, templateStr, data)
-c.Render(code, name, data)         // Uses configured Renderer
+c.HTML(code, file, data)            // Render a file directly
+c.HTMLView(code, templateStr, data) // Render an inline template string
+c.Render(code, name, data)          // Render a named template via the configured Renderer
 c.Redirect(code, location)
 ```
 
@@ -26,29 +28,37 @@ c.Redirect(code, location)
 
 ```go
 c.ServeFile(path)
-c.ServeFileFromFS(filepath, fs)
-c.ServeFileAttachment(path, filename)   // Download
-c.ServeFileInline(path, filename)       // Inline
+c.ServeFileFromFS(filepath, fs)         // From any http.FileSystem
+c.ServeFileAttachment(path, filename)   // Content-Disposition: attachment (download)
+c.ServeFileInline(path, filename)       // Content-Disposition: inline
 ```
 
-### Structured Response (Body/Status/Header pattern)
+### Structured Response (Body/Status/Header Pattern)
+
+`c.Respond` / `c.Return` introspect a struct and write the body, status, and headers from its fields. Fields tagged `header:` become response headers; the `Body` field becomes the payload; `Status` (int) selects the HTTP status.
 
 ```go
 type BookResponse struct {
-    Status    int    // HTTP status code
-    Body      Book   // Response payload
-    RequestID string `header:"X-Request-ID"`  // Response header
+    Status    int               // HTTP status code (defaults to 200)
+    Body      Book              // Response payload
+    RequestID string            `header:"X-Request-ID"`  // Response header
+    SetCookie string            `cookie:"session"`       // Response cookie
 }
-c.Respond(&response) / c.Return(&response)
+
+c.Respond(&BookResponse{Status: 200, Body: book, RequestID: rid})
+c.Return(&BookResponse{Body: book})
 ```
+
+The output format is chosen from the request's `Accept` header (JSON / XML / YAML / plain). Defaults to JSON.
 
 ### Response Control
 
 ```go
-c.WriteStatus(code)              // Set HTTP status code
+c.WriteStatus(code)              // Set HTTP status code (no body)
 c.SetHeader(key, value)          // Set response header
 c.SetCookie(name, value, maxAge, path, domain, secure, httpOnly)
-c.Response()                     // Access ResponseWriter
+c.Response()                     // Access ResponseWriter (extended interface)
+c.ResponseWriter()               // Access underlying http.ResponseWriter
 ```
 
 ### ResponseWriter Extensions
@@ -58,55 +68,8 @@ The `ResponseWriter` interface extends `http.ResponseWriter` with:
 ```go
 StatusCode() int                          // Get written HTTP status code
 BytesWritten() int                        // Get total bytes written
-Close()                                   // Close the writer
-Hijack() (net.Conn, *bufio.ReadWriter, error)  // Upgrade to raw TCP (WebSockets, proxies)
+Close() error                             // Close the writer
+Hijack() (net.Conn, *bufio.ReadWriter, error)  // Raw TCP (WebSockets, proxies)
 Flush()                                   // Flush buffered data (streaming, SSE, gzip)
 Push(target string, opts *http.PushOptions) error  // HTTP/2 server push
-```
-
-### Abort Methods (use configured ErrorHandler)
-
-Every HTTP status code has a dedicated method:
-
-```go
-c.AbortBadRequest(msg, ...err)           // 400
-c.AbortUnauthorized(msg, ...err)         // 401
-c.AbortForbidden(msg, ...err)            // 403
-c.AbortNotFound(msg, ...err)             // 404
-c.AbortConflict(msg, ...err)             // 409
-c.AbortValidationError(msg, ...err)      // 422
-c.AbortValidationErrors([]ValidationError, ...msg)  // 422 detailed
-c.AbortTooManyRequests(msg, ...err)      // 429
-c.Abort(err)                             // 500
-c.AbortInternalServerError(msg, ...err)  // 500
-c.AbortServiceUnavailable(msg, ...err)   // 503
-// ... and all other 4xx/5xx codes
-```
-
-### Raw Error Methods (direct JSON write)
-
-```go
-c.ErrorBadRequest(message)
-c.ErrorNotFound(message)
-c.ErrorInternalServerError(message)
-// ... etc.
-```
-
-### RFC 7807 Problem Details
-
-```go
-detail := okapi.NewProblemDetail(400, "https://example.com/errors/bad-input", "Invalid input").
-    WithInstance("/books/123").
-    WithExtension("field", "name").
-    WithTimestamp()
-c.AbortWithProblemDetail(detail)
-```
-
-### Error Handler Configuration
-
-```go
-app.WithErrorHandler(customHandler)
-app.WithProblemDetailErrorHandler(&ErrorHandlerConfig{...})
-app.WithSimpleProblemDetailErrorHandler()
-app.WithDefaultErrorHandler()
 ```

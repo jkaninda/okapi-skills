@@ -17,8 +17,9 @@ Any(path, handler, ...RouteOption) *Route   // All methods (Okapi only)
 
 ```go
 // On *Okapi and *Group
-HandleStd(method, path string, h func(http.ResponseWriter, *http.Request), opts ...RouteOption)
-HandleHTTP(method, path string, h http.Handler, opts ...RouteOption)
+o.Handle(method, path, h, ...opts)                                  // generic Okapi handler
+o.HandleStd(method, path, http.HandlerFunc, ...opts)                // plain http.HandlerFunc
+o.HandleHTTP(method, path, http.Handler, ...opts)                   // http.Handler
 ```
 
 ### Path Parameter Types
@@ -28,6 +29,8 @@ HandleHTTP(method, path string, h http.Handler, opts ...RouteOption)
 /books/{id:int}     - integer parameter
 /books/{id:uuid}    - UUID parameter
 ```
+
+Access with `c.PathParam("id")` or `c.Param("id")`. Path params declared in the path are auto-documented in OpenAPI.
 
 ### Generic Handler Wrappers
 
@@ -49,28 +52,74 @@ okapi.HandleO[O](func(c *Context) (*O, error)) HandlerFunc
 group := app.Group("/api", middleware1, middleware2)
 sub   := group.Group("/v1")
 
-group.Disable() / group.Enable()       // Runtime toggle
-group.WithBearerAuth()                  // Require Bearer auth
-group.WithBasicAuth()                   // Require Basic auth
-group.WithTags([]string{"API"})         // OpenAPI tags
-group.WithSecurity(schemes)             // Security schemes
-group.Deprecated()                      // Mark deprecated
-group.Use(middleware)                   // Add middleware
-group.UseMiddleware(stdMiddleware)      // Standard http middleware
-group.Register(routes...)               // Bulk registration
-group.HandleStd(method, path, handler)  // Standard http handler
-group.HandleHTTP(method, path, handler) // http.Handler
+group.WithTags([]string{"API"})           // OpenAPI tags inherited by routes
+group.WithTagInfo(okapi.GroupTag{...})    // Tag with description
+group.WithBearerAuth() / .WithBasicAuth() // Auth scheme requirement
+group.WithSecurity(schemes)               // Custom security requirements
+group.Deprecated()                        // Mark group routes deprecated
+group.Use(...middleware)                  // Add middleware
+group.UseMiddleware(stdMiddleware)        // Standard http.Handler middleware
+group.Register(routes ...RouteDefinition) // Bulk register RouteDefinition slice
+group.HandleStd(method, path, handler)    // Standard http handler
+group.HandleHTTP(method, path, handler)   // http.Handler
+group.Okapi()                             // Back-reference to *Okapi
+group.Disable() / .Enable()               // Runtime toggle (all routes 404)
 ```
 
 ### Route Methods
 
-- `route.Hide()` - Hide from OpenAPI docs
-- `route.Disable()` / `route.Enable()` - Runtime enable/disable
-- `route.Use(middlewares...)` - Per-route middleware
-- `route.WithIO(req, res)` - Set request/response schemas
-- `route.WithInput(req)` - Set request schema
-- `route.WithOutput(res)` - Set response schema
+```go
+route.Hide()                              // Hide from OpenAPI docs
+route.Deprecated()                        // Mark deprecated in docs
+route.Disable() / route.Enable()          // Runtime enable/disable (404 when disabled)
+route.Use(...middlewares)                 // Per-route middleware
+route.WithIO(req, res)                    // Set request/response schemas
+route.WithInput(req)                      // Set request schema
+route.WithOutput(res)                     // Set response schema
+route.WithSecurity(...schemes)            // Per-route security requirements
+```
+
+### Static Files
+
+```go
+o.Static("/assets", "public/assets")      // Serve directory at /assets/*
+o.StaticFile("/favicon.ico", "favicon.ico")
+o.StaticFS("/assets", http.FS(embedFS))   // Serve from any http.FileSystem
+```
+
+Directory listing is disabled by default for security.
+
+### Fallback Handlers
+
+```go
+o.NoRoute(func(c *okapi.Context) error { ... })  // 404 fallback
+o.NoMethod(func(c *okapi.Context) error { ... }) // 405 fallback
+```
 
 ### Route Introspection
 
-- `app.Routes() []Route` - List all registered routes
+```go
+o.Routes() []Route                        // List all registered routes
+```
+
+### Mounting `http.Handler` & `http.HandlerFunc`
+
+```go
+o.HandleStd("GET", "/legacy", legacyHandler)
+
+type MyHandler struct{}
+func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) { ... }
+
+o.HandleHTTP("GET", "/custom", &MyHandler{})
+```
+
+### Accessing Underlying Objects
+
+```go
+o.Get("/raw", func(c *okapi.Context) error {
+    req := c.Request()   // *http.Request
+    w   := c.Response()  // ResponseWriter (extends http.ResponseWriter)
+    w.Header().Set("X-Custom", "value")
+    return nil
+})
+```
