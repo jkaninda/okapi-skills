@@ -38,6 +38,18 @@ c.SSESendBinary([]byte{...})   // Base64 serializer
 c.SendSSECustom(data, mySerializer)  // Custom serializer
 ```
 
+> `c.SendSSEvent(id, eventType, data)` is deprecated — use `c.SSESendEvent(...)`.
+
+Each helper writes the frame and flushes it, so events reach the client immediately. `okapi.LoggerMiddleware` skips SSE requests, keeping long-lived streams out of the access log.
+
+A `Message` can also be written directly to any `http.ResponseWriter`:
+
+```go
+msg := okapi.Message{Event: "update", Data: payload}
+id, err := msg.Send(c.Response())   // writes the frame, returns the message ID
+err = msg.Close(c.Response())       // flush
+```
+
 ### Simple Event Loop (Recommended for Most Cases)
 
 The simplest pattern — use a ticker and send events directly in a loop:

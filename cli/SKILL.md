@@ -2,6 +2,14 @@
 
 The `okapicli` package adds typed flags, env-variable binding, subcommands, and lifecycle hooks to an Okapi app.
 
+### Constructors
+
+```go
+cli := okapicli.New(app *okapi.Okapi, name ...string) *CLI // wrap an existing app
+cli := okapicli.Default() *CLI                              // new CLI with a default Okapi instance
+app := cli.Okapi()                                          // the underlying *okapi.Okapi
+```
+
 ### Basic Usage
 
 ```go
@@ -49,6 +57,8 @@ cli := okapicli.New(app, "myapp").FromStruct(cfg)
 if err := cli.Parse(); err != nil { panic(err) }
 // cfg fields are populated with resolved values
 ```
+
+`cli.WithConfig(cfg)` is an equivalent of `FromStruct` with the same tag set. Supported field types: `string`, `int*`, `bool`, `float*`.
 
 ### Value Resolution Order
 
@@ -101,15 +111,25 @@ cmd.FromStruct(v)              // Register flags from struct tags
 ```go
 cli.RunServer(&okapicli.RunOptions{
     ShutdownTimeout: 30 * time.Second,
-    Signals:         []os.Signal{os.Interrupt, syscall.SIGTERM},
+    Signals:         []os.Signal{okapicli.SIGINT, okapicli.SIGTERM},
     OnStart:    func() { slog.Info("Preparing resources before startup") },
     OnStarted:  func() { slog.Info("Server started") },
     OnShutdown: func() { slog.Info("Cleaning up before shutdown") },
 })
 
-// Or simple defaults (30s timeout, SIGINT/SIGTERM)
+// Or simple defaults — shorthand for RunServer(nil): 30s shutdown timeout, SIGINT/SIGTERM
 cli.Run()
 ```
+
+| `RunOptions` field | Default |
+|--------------------|---------|
+| `ShutdownTimeout` | 30s |
+| `Signals` | `okapicli.SIGINT`, `okapicli.SIGTERM` |
+| `OnStart` | called just before the server starts |
+| `OnStarted` | called shortly after a successful start |
+| `OnShutdown` | called before graceful shutdown begins |
+
+`RunServer` starts the server in a goroutine, blocks on the signal channel, and shuts down gracefully — no manual `signal.Notify` needed.
 
 ### Configuration File Loading
 

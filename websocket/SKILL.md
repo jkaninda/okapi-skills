@@ -1,28 +1,28 @@
-## Okapi WebSocket
+## Okapi WebSocket (`okapiws`)
 
-WebSocket support ships as a separate, framework-agnostic package: `github.com/jkaninda/okapi-ws` (import alias commonly `okapiws`). It works with Okapi handlers and plain `net/http`.
+WebSocket support ships as a separate, framework-agnostic package. It works with Okapi handlers and with plain `net/http`.
 
 ### Installation
 
+The repository is `jkaninda/okapi-ws`, but the **module path is `github.com/jkaninda/okapiws`** — use that in `go get` and in imports:
+
 ```shell
-go get github.com/jkaninda/okapi-ws
+go get github.com/jkaninda/okapiws
 ```
 
-### Helper: Upgrade Inside an Okapi Handler
+```go
+import okapiws "github.com/jkaninda/okapiws"
+```
+
+Built on `github.com/gorilla/websocket`.
+
+### Upgrading Inside an Okapi Handler
+
+`c.Response()` implements `Hijack`, so the upgrader works directly:
 
 ```go
-package main
-
-import (
-    "log"
-    "net/http"
-
-    "github.com/jkaninda/okapi"
-    okapiws "github.com/jkaninda/okapi-ws"
-)
-
 func WebSocket(config *okapiws.WSConfig, c *okapi.Context) (*okapiws.WSConnection, error) {
-    upgrader := okapiws.NewWSUpgrader(config)
+    upgrader := okapiws.NewWSUpgrader(config) // nil config = defaults
     return upgrader.Upgrade(c.Response(), c.Request(), nil)
 }
 
@@ -32,7 +32,9 @@ func WebSocketWithHeaders(config *okapiws.WSConfig, headers http.Header, c *okap
 }
 ```
 
-### Echo Handler
+Or upgrade with defaults in one call: `okapiws.Default(c.Response(), c.Request(), nil)`.
+
+### Echo Server
 
 ```go
 func main() {
@@ -44,12 +46,16 @@ func main() {
 
     app.Get("/ws", handleWebSocket)
 
-    if err := app.Start(); err != nil { panic(err) }
+    if err := app.Start(); err != nil {
+        panic(err)
+    }
 }
 
 func handleWebSocket(c *okapi.Context) error {
-    ws, err := WebSocket(nil, c) // nil = default config
-    if err != nil { return err }
+    ws, err := WebSocket(nil, c)
+    if err != nil {
+        return err
+    }
     defer func() {
         if err := ws.Close(); err != nil {
             log.Printf("error closing WebSocket: %v", err)
@@ -61,13 +67,12 @@ func handleWebSocket(c *okapi.Context) error {
         _ = ws.Send(msg.Data) // echo back
     })
 
-    ws.OnError(func(err error) {
-        log.Printf("WebSocket error: %v", err)
-    })
+    ws.OnError(func(err error) { log.Printf("WebSocket error: %v", err) })
+    ws.OnClose(func() { log.Println("client disconnected") })
 
-    ws.Start()
+    ws.Start()            // start the read/write pumps
 
-    <-ws.Context().Done() // block until closed
+    <-ws.Context().Done() // block until the connection closes
     return nil
 }
 ```
@@ -75,55 +80,122 @@ func handleWebSocket(c *okapi.Context) error {
 ### With Plain `net/http`
 
 ```go
-func main() {
-    http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-        upgrader := okapiws.NewWSUpgrader(nil)
-        ws, err := upgrader.Upgrade(w, r, nil)
-        if err != nil {
-            http.Error(w, "WebSocket upgrade failed", http.StatusBadRequest)
-            return
-        }
-        defer ws.Close()
+http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+    upgrader := okapiws.NewWSUpgrader(nil)
+    ws, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        http.Error(w, "WebSocket upgrade failed", http.StatusBadRequest)
+        return
+    }
+    defer ws.Close()
 
-        ws.OnMessage(func(msg *okapiws.WSMessage) {
-            log.Printf("[%d] %s", msg.Type, msg.Data)
-            _ = ws.Send(msg.Data)
-        })
+    ws.OnMessage(func(msg *okapiws.WSMessage) { _ = ws.Send(msg.Data) })
+    ws.OnError(func(err error) { log.Printf("WebSocket error: %v", err) })
+    ws.Start()
 
-        ws.OnError(func(err error) { log.Printf("WebSocket error: %v", err) })
-        ws.Start()
+    <-ws.Context().Done()
+})
 
-        <-ws.Context().Done()
-    })
-
-    log.Println("Listening on :8080…")
-    log.Fatal(http.ListenAndServe(":8080", nil))
-}
+log.Fatal(http.ListenAndServe(":8080", nil))
 ```
 
-### Detecting a WebSocket Upgrade
+### Server API
+
+```go
+okapiws.NewWSUpgrader(config *WSConfig) *WSUpgrader
+upgrader.Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (*WSConnection, error)
+okapiws.Default(w, r, responseHeader) (*WSConnection, error)  // upgrade with default settings
+okapiws.DefaultWSConfig() *WSConfig
+```
+
+`*WSConnection`:
+
+```go
+ws.OnMessage(func(*okapiws.WSMessage))  // message callback
+ws.OnError(func(error))                 // error callback
+ws.OnClose(func())                      // close callback
+ws.Send(data []byte) error              // text frame (non-blocking)
+ws.SendText(text string) error
+ws.SendBinary(data []byte) error
+ws.SendJSON(v any) error
+ws.SendEvent(event string, data any) error // {event, data} envelope
+ws.Start()                              // start read/write goroutines
+ws.Close() error                        // graceful close
+ws.IsClosed() bool
+ws.Context() context.Context            // cancelled when the connection closes
+```
+
+`WSMessage`: `Type int`, `Data []byte`, `Event string`, `Error error`.
+
+### WSConfig
+
+| Field | Default |
+|-------|---------|
+| `ReadBufferSize` / `WriteBufferSize` | 1024 |
+| `HandshakeTimeout` | 10s |
+| `CheckOrigin func(*http.Request) bool` | `func(*http.Request) bool { return true }` — allows **any** origin; override in production |
+| `Subprotocols` | none |
+| `EnableCompression` | false |
+| `PingInterval` | 54s |
+| `PongWait` | 60s |
+| `WriteWait` | 10s |
+| `MaxMessageSize` | 512 KB |
+
+```go
+cfg := &okapiws.WSConfig{
+    CheckOrigin:    func(r *http.Request) bool { return r.Header.Get("Origin") == "https://app.example.com" },
+    PingInterval:   30 * time.Second,
+    PongWait:       40 * time.Second,
+    MaxMessageSize: 1 << 20,
+}
+ws, err := okapiws.NewWSUpgrader(cfg).Upgrade(c.Response(), c.Request(), nil)
+```
+
+Ping/pong keep-alive is handled for you from `PingInterval` / `PongWait`.
+
+### Client
+
+The package also ships a client with optional auto-reconnect:
+
+```go
+client := okapiws.NewWSClient("wss://api.example.com/ws",
+    okapiws.WithConfig(&okapiws.WSClientConfig{
+        AutoReconnect:    true,
+        ReconnectInitial: time.Second,
+        ReconnectMax:     30 * time.Second,
+        MaxRetries:       0, // unlimited
+        Headers:          http.Header{"Authorization": {"Bearer " + token}},
+    }))
+
+client.OnConnect(func() { log.Println("connected") })       // fires on connect and each reconnect
+client.OnMessage(func(msg *okapiws.WSMessage) { log.Printf("%s", msg.Data) })
+client.OnError(func(err error) { log.Println(err) })
+client.OnClose(func() { log.Println("closed") })
+
+if err := client.Connect(ctx); err != nil {
+    return err
+}
+defer client.Close()
+
+_ = client.SendJSON(map[string]any{"type": "subscribe", "topic": "prices"})
+<-client.Context().Done()
+```
+
+`WSClientConfig` adds `TLSConfig`, `Subprotocols`, `EnableCompression`, and the reconnect knobs to the shared buffer/timeout fields. `okapiws.DefaultWSClient()` returns the defaults.
+
+### Detecting an Upgrade Request
 
 ```go
 if c.IsWebSocketUpgrade() {
-    // Connection: Upgrade + Upgrade: websocket headers present
+    // Connection: Upgrade + Upgrade: websocket present
 }
 ```
 
-`okapi.LoggerMiddleware` automatically skips logging for WebSocket upgrade requests so the access log isn't polluted with the long-lived connection.
-
-### Connection API (Conventions)
-
-- `ws.OnMessage(func(*WSMessage))` — message callback
-- `ws.OnError(func(error))` — error callback
-- `ws.OnClose(func())` — close callback
-- `ws.Send(data []byte)` / `ws.SendText(text string)` / `ws.SendJSON(v any)` — write outbound
-- `ws.Start()` — start the read loop
-- `ws.Close()` — close the connection
-- `ws.Context()` — `context.Context` cancelled on close
+`okapi.LoggerMiddleware` skips WebSocket upgrades, so a long-lived connection does not sit in the access log.
 
 ### Tips
 
-- Always defer `ws.Close()` after a successful upgrade.
-- Block on `<-ws.Context().Done()` to keep the handler alive for the lifetime of the connection.
-- Hold conversation state in a wrapping struct, not on the `*Context` (which is per-request, not per-connection).
-- Use the standard ping/pong pattern for connection liveness; configure intervals via the `WSConfig` passed to `NewWSUpgrader`.
+- Always `defer ws.Close()` after a successful upgrade.
+- Block on `<-ws.Context().Done()` to keep the handler alive for the connection's lifetime.
+- Keep per-connection state in your own struct — `*okapi.Context` is per-request, not per-connection.
+- Set `CheckOrigin` explicitly — the default accepts every origin, which is fine for development only.
