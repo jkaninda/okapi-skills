@@ -13,19 +13,24 @@ Skills are focused, single-purpose reference files that AI agents (Claude Code, 
 | [overview](overview/) | Project structure, core types, constructors, app configuration, server lifecycle |
 | [routing](routing/) | HTTP methods, path parameters, generic handlers, route groups, route methods, fallbacks |
 | [route_definition](route_definition/) | Declarative `RouteDefinition` struct, bulk registration, project organization patterns |
-| [request_binding](request_binding/) | Struct tag binding (JSON, query, path, header, cookie, form), validation tags, formats |
-| [response](response/) | JSON/XML/YAML responses, file serving, structured responses, ResponseWriter extensions |
-| [error_handling](error_handling/) | Abort methods, custom error handlers, RFC 7807 Problem Details |
-| [openapi](openapi/) | Swagger UI, ReDoc, Scalar, OpenAPI 3.0 / 3.1, webhooks, OAuth flows, DocBuilder |
-| [authentication](authentication/) | JWT auth, claims expression DSL, Basic auth, CORS configuration |
+| [request_binding](request_binding/) | Binding sources (JSON, XML, YAML, Protobuf, query, path, header, cookie, form), body-field style, uploads |
+| [validation](validation/) | Struct-tag constraints, conditional required, schema annotations, formats, typed handlers |
+| [response](response/) | JSON/XML/YAML responses, file serving, structured responses, write-once semantics, ResponseWriter |
+| [error_handling](error_handling/) | Abort and Error helpers, custom error handlers, RFC 7807 Problem Details, validation errors |
+| [openapi](openapi/) | Swagger UI, ReDoc, Scalar, OpenAPI 3.1 / 3.0, webhooks, OAuth flows, DocBuilder, component schemas |
+| [authentication](authentication/) | JWT (JWKS, claims expression DSL, claim forwarding), Basic auth, CORS |
 | [middleware](middleware/) | Built-in middleware (Logger, RequestID, BasicAuth, JWT, BodyLimit, CORS), chaining, std-lib bridge |
 | [dynamic_routes](dynamic_routes/) | Runtime enable/disable of routes, groups, and docs; deprecation; hiding |
 | [sse_stream](sse_stream/) | Server-Sent Events, single events, channel streaming, serializers |
-| [websocket](websocket/) | WebSocket upgrade via the `okapi-ws` package, with Okapi and `net/http` |
+| [websocket](websocket/) | WebSocket server and client via the `okapiws` package, with Okapi and `net/http` |
 | [http_client](http_client/) | `okapi/client` fluent HTTP client, retries, middleware, decoders |
 | [testing](testing/) | TestServer, TestContext, okapitest fluent client, assertions |
 | [cli](cli/) | okapicli package, flags, struct-based config, subcommands, server lifecycle hooks |
-| [context](context/) | Data store, request inspection, parameters, cookies, templates, static files, TLS |
+| [context](context/) | Data store, request inspection, parameters, cookies, goroutine safety |
+| [templating](templating/) | Template loading (files, directory, embedded FS), renderers, HTML helpers |
+| [web_spa](web_spa/) | `Web` / `WebFS` single-page app serving with index fallback, static files |
+| [tls_https](tls_https/) | `LoadTLSConfig`, dual HTTP/HTTPS, mTLS, autocert, HSTS |
+| [std_compat](std_compat/) | `net/http` handlers and middleware, path parameters, gradual migration |
 
 ## Usage
 
@@ -57,6 +62,7 @@ skills/
 ├── routing/SKILL.md
 ├── route_definition/SKILL.md
 ├── request_binding/SKILL.md
+├── validation/SKILL.md
 ├── response/SKILL.md
 ├── error_handling/SKILL.md
 ├── openapi/SKILL.md
@@ -68,7 +74,11 @@ skills/
 ├── http_client/SKILL.md
 ├── testing/SKILL.md
 ├── cli/SKILL.md
-└── context/SKILL.md
+├── context/SKILL.md
+├── templating/SKILL.md
+├── web_spa/SKILL.md
+├── tls_https/SKILL.md
+└── std_compat/SKILL.md
 ```
 
 ## Contributing

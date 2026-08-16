@@ -29,7 +29,7 @@ group.Post("/books", okapi.H(handler.Create),
     okapi.DocSummary("Create a book"),
     okapi.Request(&CreateBookRequest{}),
     okapi.DocResponse(201, &BookResponse{}),
-    okapi.DocErrorResponse(409, &ErrorResponse{}),
+    okapi.DocResponse(409, &ErrorResponse{}),
 )
 ```
 
@@ -44,7 +44,7 @@ app.Register(okapi.RouteDefinition{
     Request: &CreateBookRequest{},
     Options: []okapi.RouteOption{
         okapi.DocResponse(201, &BookResponse{}),
-        okapi.DocErrorResponse(409, &ErrorResponse{}),
+        okapi.DocResponse(409, &ErrorResponse{}),
     },
 })
 ```
@@ -52,25 +52,37 @@ app.Register(okapi.RouteDefinition{
 ### Registration
 
 ```go
-// Single route
+// On the app — single or variadic
 app.Register(routeDef)
-
-// Multiple routes (variadic)
 app.Register(routeDefs...)
+
+// Package-level equivalent (takes a slice)
+okapi.RegisterRoutes(app, routeDefs)
+
+// On a group — assigns the group to every route that doesn't set one
+api := app.Group("/api")
+api.Register(routeDefs...)
 ```
+
+When `Group` is nil the route is registered on the root instance; when the group's Okapi reference is unset it is filled in automatically. Supported methods are GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS — **an unsupported method panics**.
+
+Middleware comes from `Middlewares` on the definition, or from `Use()` on the app/group.
 
 ### Using Struct Fields vs Options
 
 Use struct fields for common metadata — they're cleaner and more readable:
 
-| Use struct field          | Use `Options` for                              |
-|---------------------------|-------------------------------------------------|
-| `Summary`, `Description`  | `okapi.DocPathParam(...)` — path parameters     |
-| `Tags`                    | `okapi.DocResponse(201, ...)` — non-200 status  |
-| `Request`                 | `okapi.DocResponse(204, nil)` — no-content      |
-| `Response` (200 only)     | `okapi.DocErrorResponse(...)` — error responses  |
-| `Security`                | `okapi.DocHide()` — hide from docs              |
-| `Middlewares`             | `okapi.DocQueryParam(...)` — query parameters   |
+| Use struct field          | Use `Options` for                                |
+|---------------------------|--------------------------------------------------|
+| `Summary`, `Description`  | `okapi.DocPathParam(...)` — path parameters      |
+| `Tags`                    | `okapi.DocResponse(201, ...)` — non-200 statuses |
+| `Request`                 | `okapi.DocResponse(204, nil)` — no content       |
+| `Response` (200 only)     | `okapi.DocResponse(404, &ErrorResponse{})` — errors |
+| `Security`                | `okapi.DocHide()` — hide from docs               |
+| `Middlewares`             | `okapi.DocQueryParam(...)` — query parameters    |
+| `OperationId`             | `okapi.DocHeader(...)` — header parameters       |
+
+> `okapi.DocErrorResponse(status, v)` is deprecated — use `okapi.DocResponse(status, v)`.
 
 ### Group-Level Tags with `.WithTags()`
 
@@ -156,9 +168,9 @@ func (r *Router) registerRoutes() {
     r.app.Register(r.userRoutes()...)
     r.app.Register(r.adminRoutes()...)
 
-    // Special routes that don't fit RouteDefinition
+    // Special registrations that don't fit RouteDefinition
     r.app.Static("/assets", "public/assets")
-    r.app.NoRoute(spaFallback)
+    r.app.Web("/", "./web") // SPA index fallback — register after every API route
 }
 ```
 
@@ -202,16 +214,16 @@ func (r *Router) bookRoutes() []okapi.RouteDefinition {
             Summary: "List books", Request: &ListRequest{}, Response: &PageableResponse[Book]{}},
         {Method: http.MethodGet, Path: "/{id:int}", Handler: okapi.H(r.bookHandler.Get), Group: g,
             Summary: "Get book", Response: &Response[Book]{},
-            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocErrorResponse(404, &ErrorResponse{})}},
+            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocResponse(404, &ErrorResponse{})}},
         {Method: http.MethodPost, Path: "", Handler: okapi.H(r.bookHandler.Create), Group: g,
             Summary: "Create book", Request: &CreateBookRequest{},
-            Options: []okapi.RouteOption{okapi.DocResponse(201, &Response[Book]{}), okapi.DocErrorResponse(409, &ErrorResponse{})}},
+            Options: []okapi.RouteOption{okapi.DocResponse(201, &Response[Book]{}), okapi.DocResponse(409, &ErrorResponse{})}},
         {Method: http.MethodPut, Path: "/{id:int}", Handler: okapi.H(r.bookHandler.Update), Group: g,
             Summary: "Update book", Request: &UpdateBookRequest{}, Response: &Response[Book]{},
-            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocErrorResponse(404, &ErrorResponse{})}},
+            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocResponse(404, &ErrorResponse{})}},
         {Method: http.MethodDelete, Path: "/{id:int}", Handler: okapi.H(r.bookHandler.Delete), Group: g,
             Summary: "Delete book",
-            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocResponse(204, nil), okapi.DocErrorResponse(404, &ErrorResponse{})}},
+            Options: []okapi.RouteOption{okapi.DocPathParam("id", "integer", "Book ID"), okapi.DocResponse(204, nil), okapi.DocResponse(404, &ErrorResponse{})}},
     }
 }
 ```

@@ -1,19 +1,21 @@
-## Okapi Request Binding & Validation
+## Okapi Request Binding
+
+Binding populates a struct from the request by inspecting struct tags and the `Content-Type`. Validation runs automatically at the end of `c.Bind` — the tags are documented in the `validation/` skill.
 
 ### Source Tags
 
 | Tag | Source | Example |
 |-----|--------|---------|
-| `json:"name"` | JSON body | `Name string \`json:"name"\`` |
-| `xml:"name"` | XML body | `Name string \`xml:"name"\`` |
-| `yaml:"name"` | YAML body | `Name string \`yaml:"name"\`` |
-| `query:"name"` | Query parameter | `Page int \`query:"page"\`` |
-| `path:"id"` / `param:"id"` | Path parameter | `ID int \`path:"id"\`` |
-| `header:"X-Key"` | HTTP header | `Key string \`header:"X-Key"\`` |
-| `cookie:"session"` | Cookie | `Sess string \`cookie:"session"\`` |
-| `form:"file"` | Form field / file | `File string \`form:"file"\`` |
+| `json:"name"` | JSON body | ``Name string `json:"name"` `` |
+| `xml:"name"` | XML body | ``Name string `xml:"name"` `` |
+| `yaml:"name"` | YAML body | ``Name string `yaml:"name"` `` |
+| `form:"name"` | Form field / uploaded file | ``File *multipart.FileHeader `form:"file"` `` |
+| `query:"page"` | Query parameter | ``Page int `query:"page"` `` |
+| `path:"id"` / `param:"id"` | Path parameter | ``ID int `path:"id"` `` |
+| `header:"X-Key"` | Request header | ``Key string `header:"X-API-Key"` `` |
+| `cookie:"session"` | Cookie | ``Sess string `cookie:"session"` `` |
 
-You can combine source tags on the same field — Okapi tries each source until a value is found:
+Source tags combine on one field — the body is decoded first, then path/query/form/header/cookie values are overlaid:
 
 ```go
 type BookInput struct {
@@ -23,132 +25,108 @@ type BookInput struct {
 }
 ```
 
-### Binding Methods on Context
+### Two Binding Styles
 
-```go
-c.Bind(&v)            // Auto-bind (Body field or flat struct) + validate
-c.B(&v)               // Shortcut for Bind
-c.ShouldBind(&v)      // Returns (bool, error) - no abort on failure
-c.BindJSON(&v)        // JSON body
-c.BindXML(&v)         // XML body
-c.BindYAML(&v)        // YAML body
-c.BindProtoBuf(&msg)  // Protobuf body
-c.BindQuery(&v)       // Query params
-c.BindForm(&v)        // Form data
-c.BindMultipart(&v)   // Multipart form
-```
+**1. Flat binding** — body fields sit alongside query/header/cookie/path fields in one struct.
 
-### Body Field Pattern
-
-Separate the payload from metadata using a `Body` field. Path/query/header tags sit outside the Body, JSON tags sit inside it.
+**2. Body-field binding (recommended)** — a field named `Body` (or tagged `json:"body"`) holds the payload; sibling fields carry metadata. The presence of such a field switches `c.Bind` to this mode.
 
 ```go
 type CreateBookRequest struct {
-    Body Book `json:"body"`                    // Request payload (JSON)
+    Body struct {                                        // request payload
+        Name  string `json:"name" required:"true" minLength:"2"`
+        Price int    `json:"price" required:"true" min:"5"`
+    }
 
-    ID     int    `param:"id" query:"id"`       // Path or query param
-    APIKey string `header:"X-API-Key" required:"true"`
+    BookID    string   `path:"bookId" required:"true"`   // path parameter
+    Tags      []string `query:"tags"`                    // query parameter
+    APIKey    string   `header:"X-API-Key" required:"true"` // header
+    SessionID string   `cookie:"SessionID"`              // cookie
 }
 ```
 
-### Typed Handlers (Auto-Bind + Validate)
+### Binding Methods on `*Context`
 
 ```go
-// Auto-bind input
-okapi.H(func(c *okapi.Context, in *Input) error { ... })
+c.Bind(&v) error              // auto: content-type body decode + tag overlay + validation
+c.B(&v) error                 // shortcut for Bind
+c.ShouldBind(&v) (bool, error) // same as Bind, plus an ok flag
+c.BindJSON(&v) error
+c.BindXML(&v) error
+c.BindYAML(&v) error
+c.BindProtoBuf(msg proto.Message) error
+c.BindQuery(&v) error
+c.BindForm(&v) error
+c.BindMultipart(&v) error     // multipart/form-data, including file fields
+```
+
+`c.Bind` picks the body decoder from `Content-Type`:
+
+| Content-Type | Decoder |
+|--------------|---------|
+| `application/json` | JSON |
+| `application/xml` | XML |
+| `application/yaml`, `text/yaml`, `application/x-yaml` | YAML |
+| `application/protobuf` | Protobuf (target must implement `proto.Message`) |
+| `multipart/form-data` | Multipart (handled by `BindMultipart`) |
+
+The bind target must be a **non-nil pointer to a struct**.
+
+### File Uploads
+
+`BindMultipart` (and `c.Bind` on a multipart request) fills these field types from `form:` tags:
+
+```go
+type UploadRequest struct {
+    Title  string                  `form:"title" required:"true"`
+    File   *multipart.FileHeader   `form:"file"`
+    Files  []*multipart.FileHeader `form:"files"`   // multiple files under one key
+}
+```
+
+Direct access without binding:
+
+```go
+fh, err := c.FormFile("file")
+c.SetMaxMultipartMemory(64 << 20)   // per-request override (app default: 32 MB)
+c.MaxMultipartMemory()              // current limit
+```
+
+Set the app-wide limit with `okapi.WithMaxMultipartMemory(max int64)`.
+
+### Typed Handlers (Bind + Validate Automatically)
+
+```go
+okapi.H(func(c *okapi.Context, in *Input) error { ... })       // shorthand
 okapi.Handle(func(c *okapi.Context, in *Input) error { ... })
-
-// Input + typed output
 okapi.HandleIO(func(c *okapi.Context, in *Input) (*Output, error) { ... })
-
-// Output only
 okapi.HandleO(func(c *okapi.Context) (*Output, error) { ... })
 ```
 
-### Validation Tags
+Pair them with `route.WithInput(...)`, `route.WithOutput(...)`, or `route.WithIO(...)` so the schemas reach OpenAPI.
 
-| Tag | Applies to | Description |
-|-----|------------|-------------|
-| `required:"true"` | any | Field must be present and non-zero |
-| `default:"v"` | any | Assigned when missing/empty |
-| `description:"..."` | any | OpenAPI description |
-| `example:"v"` | any | OpenAPI example |
-| `deprecated:"true"` | any | Mark deprecated in docs |
-| `min:"5"` | number | ≥ 5 |
-| `max:"100"` | number | ≤ 100 |
-| `exclusiveMin:"0"` | number | > 0 |
-| `exclusiveMax:"100"` | number | < 100 |
-| `multipleOf:"5"` | number | divisible by 5 |
-| `minLength:"3"` | string | length ≥ 3 |
-| `maxLength:"50"` | string | length ≤ 50 |
-| `pattern:"^[A-Z]+$"` | string / []string | regex |
-| `format:"email"` | string / []string | format validation (see below) |
-| `enum:"a,b,c"` | string / []string | one of these values |
-| `const:"value"` | string / []string | must equal this value (becomes JSON Schema `const` in OAS 3.1) |
-| `minItems:"1"` | slice | length ≥ 1 |
-| `maxItems:"10"` | slice | length ≤ 10 |
-| `uniqueItems:"true"` | slice | no duplicates |
-| `minProperties:"1"` | map | size ≥ 1 |
-| `maxProperties:"10"` | map | size ≤ 10 |
-
-> **Slices:** `enum`, `const`, `format`, and `pattern` apply to **each element** of a `[]string` field. Failures are reported per index (e.g. `element [2]: ...`).
->
-> **Empty values:** `enum`, `const`, `format`, and `pattern` skip empty strings — combine with `required:"true"` to also enforce presence.
-
-### Supported Formats
-
-#### Date & time
-
-| Format | Description |
-|--------|-------------|
-| `date` | `YYYY-MM-DD` |
-| `date-time` | RFC3339 timestamp |
-| `time` | RFC3339 full-time (`15:04:05Z`) |
-| `duration` | Go duration (`1h30m`, `300ms`) |
-
-#### Network, web & identifiers
-
-| Format | Description |
-|--------|-------------|
-| `email` | Valid email |
-| `hostname` | Valid hostname |
-| `ipv4` / `ipv6` | IP addresses |
-| `mac` | MAC address |
-| `cidr` | CIDR notation (`192.168.1.0/24`) |
-| `uri` / `uri-reference` | Any URI (or relative reference) |
-| `url` | Absolute http/https URL |
-| `uuid` / `ulid` | UUID / ULID |
-| `e164` / `phone` | E.164 phone (`+14155552671`) |
-| `credit-card` | Luhn-valid card number |
-| `semver` | Semantic version |
-| `json-pointer` | RFC 6901 JSON Pointer |
-| `byte` / `base64` | Base64-encoded data |
-
-#### String content
-
-| Format | Description |
-|--------|-------------|
-| `alpha` | Letters only |
-| `alphanumeric` | Letters + digits |
-| `numeric` | Numeric string |
-| `ascii` | ASCII only |
-| `lowercase` / `uppercase` | Case constraint |
-| `slug` | URL slug (`my-post-123`) |
-| `hexcolor` | `#RGB` or `#RRGGBB` |
-| `regex` | Use with `pattern` to validate via custom regex |
-
-### Example
+### Manual Value Access
 
 ```go
-type CreateUserRequest struct {
-    Email    string            `json:"email" required:"true" format:"email"`
-    Password string            `json:"password" minLength:"8"`
-    Age      int               `json:"age" exclusiveMin:"0" max:"120" default:"18"`
-    Website  string            `json:"website" format:"url"`
-    Kind     string            `json:"kind" const:"user"`
-    Roles    []string          `json:"roles" minItems:"1" uniqueItems:"true" enum:"admin,editor,viewer"`
-    Metadata map[string]string `json:"metadata" minProperties:"1" maxProperties:"10"`
-    Phone    string            `json:"phone" format:"e164"`
-    UUID     string            `json:"uuid" format:"uuid"`
-}
+c.Param("id") / c.PathParam("id")
+c.Query("page")
+c.QueryArray("tags")   // repeated (?tags=a&tags=b) and comma-separated (?tags=a,b)
+c.QueryMap()
+c.Form("name") / c.FormValue("name")
+c.Header("X-API-Key") / c.Headers()
+c.Cookie("session")    // (string, error)
 ```
+
+### Error Handling
+
+```go
+o.Post("/books", func(c *okapi.Context) error {
+    var in CreateBookRequest
+    if err := c.Bind(&in); err != nil {
+        return c.AbortBadRequest("Invalid request body", err)
+    }
+    return c.Created(in.Body)
+})
+```
+
+Binding and validation failures are returned as a single `error`; convert it with an `Abort*` helper, or return structured field errors via `c.AbortValidationErrors(...)`.

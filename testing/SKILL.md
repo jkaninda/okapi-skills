@@ -1,69 +1,112 @@
 ## Okapi Testing
 
+Two pieces: `okapi`'s test server / test context, and the `okapitest` package's fluent request builder and assertions.
+
 ### Test Server
 
 ```go
-server := okapi.NewTestServer(t)
-server.Get("/books", handler)
-// server.BaseURL gives the test server URL
+func TestBooks(t *testing.T) {
+    server := okapi.NewTestServer(t)          // random free port, stopped via t.Cleanup
+    server.Get("/books", GetBooksHandler)     // *TestServer embeds *Okapi — register as usual
+
+    okapitest.GET(t, server.BaseURL+"/books").
+        ExpectStatusOK().
+        ExpectBodyContains("The Go Programming Language")
+}
 ```
 
-### Test Context (unit tests)
+Constructors:
 
 ```go
-ctx, recorder := okapi.NewTestContext("GET", "/books", nil)
+okapi.NewTestServer(t TestingT) *TestServer                    // new Okapi instance
+okapi.NewTestServerOn(t TestingT, port int) *TestServer         // fixed port
+okapi.NewTestServerWithOkapi(t TestingT, o *Okapi) *TestServer   // wrap a configured instance
+okapi.DefaultTestServer(t TestingT) *TestServer                  // okapi.Default() based
 ```
 
-### Fluent HTTP Client (`okapitest` package)
+`*TestServer` embeds `*Okapi` and adds `BaseURL string`.
+
+`TestingT` is satisfied by `*testing.T` (`Helper`, `Cleanup`, `Errorf`, `Fatalf`), so a custom harness can be plugged in.
+
+Starting an already-built app for a test:
+
+```go
+o := buildApp()                    // your production wiring
+baseURL := o.StartForTest(t)       // starts and registers cleanup
+addr := o.WaitForServer(2 * time.Second) // block until ready (when starting manually)
+```
+
+### Test Context (unit-testing a handler directly)
+
+```go
+ctx, rec := okapi.NewTestContext("POST", "/books", strings.NewReader(`{"name":"Go"}`))
+ctx.Request().Header.Set("Content-Type", "application/json")
+
+if err := CreateBookHandler(ctx); err != nil {
+    t.Fatal(err)
+}
+
+okapitest.FromRecorder(t, rec).
+    ExpectStatusCreated().
+    ExpectJSONPath("name", "Go")
+```
+
+`NewTestContext` builds its own in-memory request and `httptest.ResponseRecorder` without a full Okapi engine.
+
+### Fluent Requests (`okapitest`)
 
 ```go
 import "github.com/jkaninda/okapi/okapitest"
 
 okapitest.GET(t, url).
-    Header("Authorization", "Bearer token").
+    Header("Authorization", "Bearer "+token).
     ExpectStatusOK().
-    ExpectBodyContains("Go Programming").
-    ExpectHeader("Content-Type", "application/json")
+    ExpectContentType("application/json").
+    ExpectBodyContains("Go Programming")
 
 okapitest.POST(t, url).
     JSONBody(map[string]any{"name": "Book"}).
-    ExpectStatus(201)
+    ExpectStatusCreated()
 ```
 
-### TestClient (reusable with base URL + default headers)
+Verb entry points: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, plus `Request(t)` for a blank builder and `FromRecorder(t, rec)` for a recorded response.
+
+### Reusable Client
 
 ```go
 client := okapitest.NewClient(t, server.BaseURL)
+client.Headers["Authorization"] = "Bearer " + token   // default headers for every request
+
 client.GET("/books").ExpectStatusOK()
 client.POST("/books").JSONBody(book).ExpectStatusCreated()
 ```
 
-### Request Builder Methods
+### Request Builder
 
 ```go
-// Request construction
-rb.Method(method)                      // Set HTTP method
-rb.URL(url)                            // Set full URL
-rb.Path(path)                          // Append path segment
-rb.Header(key, value)                  // Set single header
-rb.Headers(map[string]string{...})     // Set multiple headers
-rb.QueryParam(key, value)              // Add query parameter
-rb.QueryParams(map[string]string{...}) // Add multiple query parameters
-rb.SetBasicAuth(username, password)    // Set Basic auth header
-rb.SetBearerAuth(token)               // Set Bearer auth header
-rb.Body(reader)                        // Set raw body
-rb.JSONBody(data)                      // Set JSON body (auto-marshal)
-rb.FormBody(values)                    // Set form-encoded body
-rb.Timeout(duration)                   // Set request timeout
+rb.Method(method)                      // HTTP method
+rb.URL(url)                            // full URL
+rb.Path(path)                          // append a path segment
+rb.Header(key, value)
+rb.Headers(map[string]string{...})
+rb.QueryParam(key, value)
+rb.QueryParams(map[string]string{...})
+rb.SetBasicAuth(user, pass)
+rb.SetBearerAuth(token)
+rb.Body(io.Reader)                     // raw body
+rb.JSONBody(v)                         // marshalled, Content-Type: application/json
+rb.FormBody(map[string]string)         // application/x-www-form-urlencoded
+rb.Timeout(d)
 
-// Execution
-rb.Execute() (*http.Response, []byte)  // Execute and return raw response
+rb.Execute() (*http.Response, []byte)  // run and inspect manually
 ```
 
-### Response Assertions
+Assertions are chainable and fail the test through `*testing.T`; the request is issued once on the first assertion.
+
+### Assertions
 
 ```go
-// Status codes
+// Status
 rb.ExpectStatus(code)
 rb.ExpectStatusOK()                    // 200
 rb.ExpectStatusCreated()               // 201
@@ -77,38 +120,58 @@ rb.ExpectStatusConflict()              // 409
 rb.ExpectStatusInternalServerError()   // 500
 
 // Body
-rb.ExpectBody(expected)                // Exact match
-rb.ExpectBodyContains(substr)          // Contains substring
-rb.ExpectContains(substr)              // Alias for ExpectBodyContains
-rb.ExpectBodyNotContains(substr)       // Does not contain
-rb.ExpectEmptyBody()                   // Body is empty
+rb.ExpectBody(expected)                // exact match
+rb.ExpectBodyContains(substr)
+rb.ExpectContains(substr)              // alias of ExpectBodyContains
+rb.ExpectBodyNotContains(substr)
+rb.ExpectEmptyBody()
 
 // JSON
-rb.ExpectJSON(expected)                // Deep-equal JSON comparison
-rb.ExpectJSONPath("path.to.field", v)  // Assert specific JSON path value
-rb.ParseJSON(&target)                  // Unmarshal response into struct
+rb.ExpectJSON(expected)                // deep-equal comparison
+rb.ExpectJSONPath("user.profile.name", "Ada") // dot path
+rb.ParseJSON(&target)                  // unmarshal into a struct for further checks
 
 // Headers
-rb.ExpectHeader(key, value)            // Exact header value match
-rb.ExpectHeaderContains(key, substr)   // Header value contains substring
-rb.ExpectHeaderExists(key)             // Header is present
-rb.ExpectContentType(contentType)      // Shortcut for Content-Type header
+rb.ExpectHeader(key, value)
+rb.ExpectHeaderContains(key, substr)
+rb.ExpectHeaderExists(key)
+rb.ExpectContentType(contentType)
 
 // Cookies
-rb.ExpectCookieExist(name)             // Cookie exists with non-empty value
-rb.ExpectCookie(name, value)           // Cookie has exact value
-```
-
-### FromRecorder (for direct handler testing)
-
-```go
-okapitest.FromRecorder(t, recorder).
-    ExpectStatusOK().
-    ExpectBodyContains("success")
+rb.ExpectCookieExist(name)
+rb.ExpectCookie(name, value)
 ```
 
 ### Utilities
 
 ```go
-okapitest.GracefulExitAfter(duration)  // Send SIGTERM after duration (for integration tests)
+okapitest.GracefulExitAfter(d)  // send SIGTERM after d — for shutdown/integration tests
+
+// Deprecated one-shot helpers — prefer the builder:
+okapitest.AssertHTTPStatus(t, method, url, headers, body, contentType, expected)
+okapitest.AssertHTTPResponse(t, method, url, headers, body, contentType, expectedStatus, expectedBody)
+```
+
+### End-to-End Example
+
+```go
+func TestCreateAndFetchBook(t *testing.T) {
+    server := okapi.NewTestServer(t)
+    RegisterRoutes(server.Okapi) // your wiring
+
+    client := okapitest.NewClient(t, server.BaseURL)
+
+    client.POST("/api/books").
+        JSONBody(okapi.M{"name": "The Go Programming Language", "price": 30}).
+        ExpectStatusCreated().
+        ExpectJSONPath("name", "The Go Programming Language")
+
+    client.GET("/api/books").
+        ExpectStatusOK().
+        ExpectContentType("application/json").
+        ExpectBodyContains("The Go Programming Language")
+
+    client.GET("/api/books/999").
+        ExpectStatusNotFound()
+}
 ```

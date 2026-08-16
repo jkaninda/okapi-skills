@@ -67,7 +67,14 @@ resp, err := c.Post("/items").
     Do()
 ```
 
-Available verbs: `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`.
+Available verbs: `Get`, `Post`, `Put`, `Patch`, `Delete`, `Head`, `Options`. For anything else use `c.Request(method, path)`.
+
+Two escape hatches on the client itself:
+
+```go
+c.BaseURL()                          // the configured base URL
+c.Do(ctx, req *http.Request)         // dispatch a hand-built *http.Request through the middleware chain
+```
 
 ### Terminal Methods
 
@@ -119,11 +126,14 @@ resp.Decode(&target)         // format chosen from Content-Type
 resp.JSON(&target)
 resp.XML(&target)
 resp.YAML(&target)
-resp.JSONPath("user.profile.name") // dot-path lookup in a JSON object
+resp.JSONPath("user.profile.name") // (any, bool) — dot-path lookup in a JSON object
 resp.Cookie("sid")           // *http.Cookie or nil
-resp.Header                  // *http.Header
-resp.StatusCode              // int
+resp.Method / resp.URL       // originating method and final URL
+resp.Header                  // http.Header  (from the embedded *http.Response)
+resp.StatusCode              // int          (from the embedded *http.Response)
 ```
+
+`Response` embeds `*http.Response` and exposes the body as `Body []byte` — already read and closed when the response is returned, so decode from `Body` rather than reading a stream.
 
 ### Middleware
 
